@@ -16,10 +16,22 @@ pip install keypass-secure-cli
 keypass init
 keypass add-cred github_token
 keypass get-cred github_token
-keypass add-device aa:bb:cc:dd:ee:ff 192.168.1.100 my-laptop
-keypass list-devices
 keypass delete-cred github_token
-keypass remove-device <device-id>
+```
+
+### 🔑 Master Key Management (Multi-PC Access)
+```bash
+# Export master key to use on other PCs
+keypass export-master-key my-key.txt
+
+# Import master key on another PC
+keypass import-master-key my-key.txt
+
+# Complete backup (credentials + master key)
+keypass backup-cred my-backup.json
+
+# Restore everything on another PC
+keypass restore-cred my-backup.json
 ```
 
 **That's it!** The app automatically connects to our secure cloud database.

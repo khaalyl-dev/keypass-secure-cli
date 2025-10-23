@@ -202,6 +202,245 @@ def init(reset: bool = typer.Option(False, help="Reset existing key if present")
     
     typer.echo("✅ Master key generated and stored in OS keyring.")
 
+@app.command()
+def export_master_key(
+    file_path: str = typer.Argument(..., help="File path to save the master key"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing file"),
+):
+    """
+    Export the master key to a file for backup or transfer to another PC.
+    
+    WARNING: This exports your master key in plain text. Store the file securely!
+    The master key allows access to all your encrypted credentials.
+    
+    Args:
+        file_path: Path where to save the master key file
+        force: Overwrite existing file without confirmation
+    """
+    # Check if master key exists
+    key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEYNAME)
+    if not key:
+        typer.echo("❌ No master key found. Run: keypass init")
+        raise typer.Exit(code=1)
+    
+    # Check if file already exists
+    if os.path.exists(file_path) and not force:
+        typer.echo(f"❌ File '{file_path}' already exists. Use --force to overwrite.")
+        raise typer.Exit(code=1)
+    
+    try:
+        # Write master key to file
+        with open(file_path, 'w') as f:
+            f.write(key)
+        
+        # Set secure file permissions (readable only by owner)
+        os.chmod(file_path, 0o600)
+        
+        typer.echo(f"✅ Master key exported to: {file_path}")
+        typer.echo("")
+        typer.echo("⚠️  SECURITY WARNING:")
+        typer.echo("  - Store this file securely (encrypted drive, password manager)")
+        typer.echo("  - Delete the file after importing to other PCs")
+        typer.echo("  - Anyone with this file can access your credentials")
+        
+    except Exception as e:
+        typer.echo(f"❌ Failed to export master key: {e}")
+        raise typer.Exit(code=1)
+
+@app.command()
+def import_master_key(
+    file_path: str = typer.Argument(..., help="File path containing the master key"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing master key"),
+):
+    """
+    Import a master key from a file to restore access to credentials.
+    
+    This allows you to use the same master key across multiple PCs,
+    giving you access to your encrypted credentials on any device.
+    
+    Args:
+        file_path: Path to the master key file
+        force: Overwrite existing master key without confirmation
+    """
+    # Check if file exists
+    if not os.path.exists(file_path):
+        typer.echo(f"❌ File not found: {file_path}")
+        raise typer.Exit(code=1)
+    
+    # Check if master key already exists
+    existing_key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEYNAME)
+    if existing_key and not force:
+        typer.echo("❌ Master key already exists. Use --force to overwrite.")
+        typer.echo("⚠️  WARNING: This will make existing credentials inaccessible!")
+        raise typer.Exit(code=1)
+    
+    try:
+        # Read master key from file
+        with open(file_path, 'r') as f:
+            key = f.read().strip()
+        
+        # Validate the key format (Fernet keys are base64 encoded, 44 characters)
+        if len(key) != 44:
+            typer.echo("❌ Invalid master key format.")
+            raise typer.Exit(code=1)
+        
+        # Test the key by creating a Fernet object
+        try:
+            Fernet(key.encode())
+        except Exception:
+            typer.echo("❌ Invalid master key format.")
+            raise typer.Exit(code=1)
+        
+        # Store the master key in keyring
+        keyring.set_password(KEYRING_SERVICE, KEYRING_KEYNAME, key)
+        
+        typer.echo("✅ Master key imported successfully!")
+        typer.echo("")
+        typer.echo("🔓 You now have access to your encrypted credentials.")
+        typer.echo("💡 Tip: Delete the master key file for security.")
+        
+    except Exception as e:
+        typer.echo(f"❌ Failed to import master key: {e}")
+        raise typer.Exit(code=1)
+
+@app.command()
+def backup_credentials(
+    file_path: str = typer.Argument(..., help="File path to save the backup"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing file"),
+):
+    """
+    Create a complete backup of all credentials and the master key.
+    
+    This creates a secure backup that can be restored on any PC.
+    The backup includes both credentials and the master key.
+    
+    Args:
+        file_path: Path where to save the backup file
+        force: Overwrite existing file without confirmation
+    """
+    _ensure_db_connection()
+    
+    # Check if file already exists
+    if os.path.exists(file_path) and not force:
+        typer.echo(f"❌ File '{file_path}' already exists. Use --force to overwrite.")
+        raise typer.Exit(code=1)
+    
+    # Get master key
+    master_key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEYNAME)
+    if not master_key:
+        typer.echo("❌ No master key found. Run: keypass init")
+        raise typer.Exit(code=1)
+    
+    try:
+        # Get all credentials for current user
+        owner = getpass.getuser().strip()
+        credentials = list(DB.items.find({"type": "credential", "user": owner}))
+        
+        # Create backup data
+        backup_data = {
+            "version": "1.0",
+            "created_at": datetime.datetime.utcnow().isoformat(),
+            "user": owner,
+            "master_key": master_key,
+            "credentials": []
+        }
+        
+        # Add credentials to backup
+        for cred in credentials:
+            backup_data["credentials"].append({
+                "name": cred["name"],
+                "token": cred["token"],  # Already encrypted
+                "tags": cred.get("tags", []),
+                "created_at": cred["created_at"].isoformat()
+            })
+        
+        # Write backup to file
+        with open(file_path, 'w') as f:
+            json.dump(backup_data, f, indent=2)
+        
+        # Set secure file permissions
+        os.chmod(file_path, 0o600)
+        
+        typer.echo(f"✅ Backup created: {file_path}")
+        typer.echo(f"📊 Credentials backed up: {len(credentials)}")
+        typer.echo("")
+        typer.echo("⚠️  SECURITY WARNING:")
+        typer.echo("  - Store this backup securely")
+        typer.echo("  - Delete the backup file after restoring")
+        typer.echo("  - Anyone with this file can access your credentials")
+        
+    except Exception as e:
+        typer.echo(f"❌ Failed to create backup: {e}")
+        raise typer.Exit(code=1)
+
+@app.command()
+def restore_credentials(
+    file_path: str = typer.Argument(..., help="File path containing the backup"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing credentials"),
+):
+    """
+    Restore credentials from a backup file.
+    
+    This restores both the master key and all credentials from a backup
+    created with the backup-credentials command.
+    
+    Args:
+        file_path: Path to the backup file
+        force: Overwrite existing credentials without confirmation
+    """
+    _ensure_db_connection()
+    
+    # Check if file exists
+    if not os.path.exists(file_path):
+        typer.echo(f"❌ File not found: {file_path}")
+        raise typer.Exit(code=1)
+    
+    # Check if credentials already exist
+    owner = getpass.getuser().strip()
+    existing_creds = DB.items.count_documents({"type": "credential", "user": owner})
+    if existing_creds > 0 and not force:
+        typer.echo(f"❌ Found {existing_creds} existing credentials. Use --force to overwrite.")
+        raise typer.Exit(code=1)
+    
+    try:
+        # Read backup file
+        with open(file_path, 'r') as f:
+            backup_data = json.load(f)
+        
+        # Validate backup format
+        if "version" not in backup_data or "master_key" not in backup_data:
+            typer.echo("❌ Invalid backup file format.")
+            raise typer.Exit(code=1)
+        
+        # Import master key
+        keyring.set_password(KEYRING_SERVICE, KEYRING_KEYNAME, backup_data["master_key"])
+        
+        # Delete existing credentials if force is used
+        if force and existing_creds > 0:
+            DB.items.delete_many({"type": "credential", "user": owner})
+            typer.echo(f"🗑️  Removed {existing_creds} existing credentials")
+        
+        # Restore credentials
+        restored_count = 0
+        for cred_data in backup_data.get("credentials", []):
+            doc = {
+                "type": "credential",
+                "name": cred_data["name"],
+                "user": owner,
+                "token": cred_data["token"],
+                "tags": cred_data.get("tags", []),
+                "created_at": datetime.datetime.fromisoformat(cred_data["created_at"])
+            }
+            DB.items.insert_one(doc)
+            restored_count += 1
+        
+        typer.echo(f"✅ Restored {restored_count} credentials")
+        typer.echo("🔓 Master key imported - you can now access your credentials")
+        
+    except Exception as e:
+        typer.echo(f"❌ Failed to restore backup: {e}")
+        raise typer.Exit(code=1)
+
 # =============================================================================
 # CLI COMMANDS - CREDENTIAL MANAGEMENT
 # =============================================================================
