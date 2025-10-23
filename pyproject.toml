@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keypass-secure-cli"
+version = "0.1.0"
+description = "keypass — minimal secure CLI demo (test only)"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+license = "MIT"
+keywords = ["cli", "security", "encryption", "mongodb", "credentials"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+  "typer[all]>=0.9.0",
+  "pymongo>=4.0.0",
+  "cryptography>=40.0.0",
+  "keyring>=24.0.0"
+]
+
+[project.scripts]
+keypass = "myapp.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/myapp"
+Repository = "https://github.com/yourusername/myapp"
+Issues = "https://github.com/yourusername/myapp/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["myapp*"]
+
+[tool.setuptools.package-data]
+myapp = ["*.py"]
